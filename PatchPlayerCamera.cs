@@ -24,7 +24,7 @@ namespace IFeelLeftOut
         private static GameObject leftOutCameraGameObject;
 
         // Input key for toggling camera
-        private static Key toggleCameraKey = Key.Period;
+        private static Key toggleCameraKey = Key.F1;
 
         // Input handling state
         private static bool keyWasPressed = false;

@@ -16,7 +16,6 @@ public class Plugin : BasePlugin
     // plugin managers
     public static new ManualLogSource Log;
     public static PlayerManager playerManager;
-    public static bool leftOutCamSelected = false;
 
     public override void Load()
     {
