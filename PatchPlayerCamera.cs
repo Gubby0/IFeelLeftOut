@@ -135,7 +135,7 @@ namespace IFeelLeftOut
             if (playerCam == null && localPlayer != null)
             {
                 Plugin.Log.LogInfo($"[Instance {instanceId}] Getting camera from player object");
-                playerCam = localPlayer.playerCamera.CameraComponent;
+                playerCam = localPlayer.PlayerCamera.CameraComponent;
             }
         }
 
@@ -235,7 +235,7 @@ namespace IFeelLeftOut
                     if (localPlayer.Role.Value == PlayerRole.Goalie)
                     {
                         // Additional check to make sure we're only working with local player's camera
-                        if (__instance != localPlayer.playerCamera) return;
+                        if (__instance != localPlayer.PlayerCamera) return;
 
                         // Ensure cameras exist
                         EnsurePlayerCameraExists();
