@@ -1,6 +1,5 @@
 ﻿using System;
 using HarmonyLib;
-using Il2CppInterop.Runtime;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -41,12 +40,16 @@ namespace IFeelLeftOut
             // Only initialize once
             if (!isLocalPlayerInstance && localPlayer != null)
             {
-                Player currentPlayer = Plugin.playerManager?.GetLocalPlayer();
-                isLocalPlayerInstance = (currentPlayer != null && currentPlayer == localPlayer);
-
-                if (isLocalPlayerInstance)
+                PlayerManager playerManager = UnityEngine.Object.FindFirstObjectByType<PlayerManager>();
+                if (playerManager != null)
                 {
-                    Plugin.Log.LogInfo($"[Instance {instanceId}] This is the local player instance");
+                    Player currentPlayer = playerManager.GetLocalPlayer();
+                    isLocalPlayerInstance = (currentPlayer != null && currentPlayer == localPlayer);
+
+                    if (isLocalPlayerInstance)
+                    {
+                        Plugin.Log($"[Instance {instanceId}] This is the local player instance");
+                    }
                 }
             }
 
@@ -58,20 +61,19 @@ namespace IFeelLeftOut
         /// </summary>
         private static void EnsurePlayerReference()
         {
-            if (Plugin.playerManager == null)
+            if (localPlayer == null)
             {
-                Plugin.playerManager = NetworkBehaviourSingleton<PlayerManager>.instance;
-            }
-
-            if (localPlayer == null && Plugin.playerManager != null)
-            {
-                localPlayer = Plugin.playerManager.GetLocalPlayer();
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Local player reference established: {(localPlayer != null ? "success" : "failed")}");
-
-                // Subscribe to team changed event if available
-                if (localPlayer != null)
+                PlayerManager playerManager = UnityEngine.Object.FindFirstObjectByType<PlayerManager>();
+                if (playerManager != null)
                 {
-                    GameEvents.SubscribeToTeamChanged(localPlayer, HandleTeamChanged);
+                    localPlayer = playerManager.GetLocalPlayer();
+                    Plugin.Log($"[Instance {instanceId}] Local player reference established: {(localPlayer != null ? "success" : "failed")}");
+
+                    // Subscribe to team changed event if available
+                    if (localPlayer != null)
+                    {
+                        GameEvents.SubscribeToTeamChanged(localPlayer, HandleTeamChanged);
+                    }
                 }
             }
         }
@@ -85,7 +87,7 @@ namespace IFeelLeftOut
             {
                 if (!IsLocalPlayerInstance()) return;
 
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Initializing left out camera for team: " + team.ToString());
+                Plugin.Log($"[Instance {instanceId}] Initializing left out camera for team: " + team.ToString());
 
                 // Calculate camera position based on team
                 float camDistance = team == PlayerTeam.Blue ? -15f : 15f;
@@ -99,12 +101,12 @@ namespace IFeelLeftOut
                 leftOutCamera.transform.rotation = Quaternion.Euler(CAM_ANGLE, camRotation, 0);
                 leftOutCamera.fieldOfView = CAM_FOV;
 
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Left out camera initialized successfully");
+                Plugin.Log($"[Instance {instanceId}] Left out camera initialized successfully");
                 initialized = true;
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning($"[Instance {instanceId}] Failed to initialize left out camera: " + e.Message);
+                Plugin.LogError($"[Instance {instanceId}] Failed to initialize left out camera: " + e.Message);
                 ResetCameraSystem();
             }
         }
@@ -118,7 +120,7 @@ namespace IFeelLeftOut
 
             if (leftOutCamera == null || leftOutCameraGameObject == null)
             {
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Creating new left out camera");
+                Plugin.Log($"[Instance {instanceId}] Creating new left out camera");
                 leftOutCameraGameObject = new GameObject("LeftOutCamera");
                 leftOutCamera = leftOutCameraGameObject.AddComponent<Camera>();
                 leftOutCamera.enabled = leftOutCamToggle;
@@ -134,7 +136,7 @@ namespace IFeelLeftOut
 
             if (playerCam == null && localPlayer != null)
             {
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Getting camera from player object");
+                Plugin.Log($"[Instance {instanceId}] Getting camera from player object");
                 playerCam = localPlayer.PlayerCamera.CameraComponent;
             }
         }
@@ -156,7 +158,7 @@ namespace IFeelLeftOut
                 leftOutCamToggle = !leftOutCamToggle;
 
                 string cameraState = leftOutCamToggle ? "ENABLED" : "DISABLED";
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Camera toggled: {cameraState}");
+                Plugin.Log($"[Instance {instanceId}] Camera toggled: {cameraState}");
             }
 
             // Update key state for next frame
@@ -177,7 +179,7 @@ namespace IFeelLeftOut
                 {
                     leftOutCamera.enabled = leftOutCamToggle;
                     playerCam.enabled = !leftOutCamToggle;
-                    Plugin.Log.LogInfo($"[Instance {instanceId}] Camera states updated: LeftOut={leftOutCamToggle}, Player={!leftOutCamToggle}");
+                    Plugin.Log($"[Instance {instanceId}] Camera states updated: LeftOut={leftOutCamToggle}, Player={!leftOutCamToggle}");
                 }
             }
         }
@@ -202,7 +204,7 @@ namespace IFeelLeftOut
             initialized = false;
             keyWasPressed = false;
 
-            Plugin.Log.LogInfo($"[Instance {instanceId}] Camera system has been reset");
+            Plugin.Log($"[Instance {instanceId}] Camera system has been reset");
         }
 
         /// <summary>
@@ -213,7 +215,7 @@ namespace IFeelLeftOut
             // Check if this is our local player
             if (localPlayer != null && player == localPlayer)
             {
-                Plugin.Log.LogInfo($"[Instance {instanceId}] Local player team changed from {oldTeam} to {newTeam}");
+                Plugin.Log($"[Instance {instanceId}] Local player team changed from {oldTeam} to {newTeam}");
                 ResetCameraSystem();
             }
         }
@@ -225,6 +227,9 @@ namespace IFeelLeftOut
             {
                 try
                 {
+                    // Skip if this is a dedicated server
+                    if (Plugin.IsDedicatedServer()) return;
+
                     // Ensure we have player and manager references
                     EnsurePlayerReference();
 
@@ -256,7 +261,7 @@ namespace IFeelLeftOut
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogWarning($"[Instance {instanceId}] Error in camera tick: " + e.Message);
+                    Plugin.LogError($"[Instance {instanceId}] Error in camera tick: " + e.Message);
                     ResetCameraSystem();
                 }
             }
