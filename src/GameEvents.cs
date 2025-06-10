@@ -38,7 +38,7 @@ namespace IFeelLeftOut
         {
             if (player == null)
             {
-                Plugin.Log.LogWarning("Attempted to subscribe to team changed events for null player");
+                //Plugin.Log.LogWarning("Attempted to subscribe to team changed events for null player");
                 return;
             }
 
@@ -49,7 +49,7 @@ namespace IFeelLeftOut
             if (!teamChangedSubscribed.ContainsKey(player))
             {
                 teamChangedSubscribed[player] = true;
-                Plugin.Log.LogInfo($"Subscribed to team changed events for player {player.GetInstanceID()}");
+                //Plugin.Log.LogInfo($"Subscribed to team changed events for player {player.GetInstanceID()}");
             }
         }
 
@@ -63,13 +63,13 @@ namespace IFeelLeftOut
             // Remove the handler
             OnTeamChanged -= handler;
 
-            Plugin.Log.LogInfo($"Unsubscribed from team changed events for player {(player != null ? player.GetInstanceID().ToString() : "null")}");
+            //Plugin.Log.LogInfo($"Unsubscribed from team changed events for player {(player != null ? player.GetInstanceID().ToString() : "null")}");
         }
 
         /// <summary>
         /// Harmony patch to intercept team changed events
         /// </summary>
-        [HarmonyPatch(typeof(Player), nameof(Player.OnPlayerTeamChanged))]
+        [HarmonyPatch(typeof(Player), "OnPlayerTeamChanged")]
         private class PlayerTeamChangedPatch
         {
             [HarmonyPostfix]
@@ -80,11 +80,11 @@ namespace IFeelLeftOut
                     // Invoke the event with the player instance and team values
                     OnTeamChanged?.Invoke(__instance, oldTeam, newTeam);
 
-                    Plugin.Log.LogInfo($"Player {__instance.GetInstanceID()} team changed from {oldTeam} to {newTeam}");
+                    //Plugin.Log.LogInfo($"Player {__instance.GetInstanceID()} team changed from {oldTeam} to {newTeam}");
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogError($"Error in team changed event handler: {e.Message}\n{e.StackTrace}");
+                    //Plugin.Log.LogError($"Error in team changed event handler: {e.Message}\n{e.StackTrace}");
                 }
             }
         }
@@ -108,7 +108,7 @@ namespace IFeelLeftOut
         /// <summary>
         /// Harmony patch to intercept role changed events
         /// </summary>
-        [HarmonyPatch(typeof(Player), nameof(Player.OnPlayerRoleChanged))]
+        [HarmonyPatch(typeof(Player), "OnPlayerRoleChanged")]
         private class PlayerRoleChangedPatch
         {
             [HarmonyPostfix]
@@ -119,11 +119,11 @@ namespace IFeelLeftOut
                     // Invoke the event with the player instance and role values
                     OnRoleChanged?.Invoke(__instance, oldRole, newRole);
 
-                    Plugin.Log.LogInfo($"Player {__instance.GetInstanceID()} role changed from {oldRole} to {newRole}");
+                    //Plugin.Log.LogInfo($"Player {__instance.GetInstanceID()} role changed from {oldRole} to {newRole}");
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogError($"Error in role changed event handler: {e.Message}\n{e.StackTrace}");
+                    //Plugin.Log.LogError($"Error in role changed event handler: {e.Message}\n{e.StackTrace}");
                 }
             }
         }
