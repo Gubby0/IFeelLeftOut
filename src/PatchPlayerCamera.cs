@@ -27,10 +27,16 @@ namespace IFeelLeftOut
 
         // Input handling state
         private static bool keyWasPressed = false;
+        private static float lastToggleTime = 0f;
+        private const float TOGGLE_COOLDOWN = 0.5f; // Prevent rapid toggling
 
         // Instance management
         private static bool isLocalPlayerInstance = false;
         private static int instanceId = UnityEngine.Random.Range(10000, 99999);
+
+        // Camera position validation
+        private static Vector3 lastKnownGoodPosition = Vector3.zero;
+        private static bool hasValidPosition = false;
 
         /// <summary>
         /// Determines if this is the instance for the local player
@@ -79,7 +85,65 @@ namespace IFeelLeftOut
         }
 
         /// <summary>
-        /// Initializes the custom camera for goalie view
+        /// Validates if a camera position is reasonable (not at origin or invalid)
+        /// </summary>
+        private static bool IsValidCameraPosition(Vector3 position)
+        {
+            // Check if position is at origin (likely invalid)
+            if (position == Vector3.zero)
+            {
+                return false;
+            }
+
+            // Check if position has reasonable values
+            if (float.IsNaN(position.x) || float.IsNaN(position.y) || float.IsNaN(position.z))
+            {
+                return false;
+            }
+
+            // Check if position is within reasonable bounds for a hockey rink
+            if (Mathf.Abs(position.x) > 100f || Mathf.Abs(position.z) > 100f || position.y < 0f || position.y > 50f)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Gets a safe camera position, falling back to known good positions if needed
+        /// </summary>
+        private static Vector3 GetSafeCameraPosition(PlayerTeam team)
+        {
+            // Calculate ideal position
+            float camDistance = team == PlayerTeam.Blue ? -15f : 15f;
+            Vector3 idealPosition = new Vector3(0, CAM_HEIGHT, camDistance);
+
+            // If ideal position is valid, use it
+            if (IsValidCameraPosition(idealPosition))
+            {
+                lastKnownGoodPosition = idealPosition;
+                hasValidPosition = true;
+                return idealPosition;
+            }
+
+            // If we have a last known good position, use that
+            if (hasValidPosition && IsValidCameraPosition(lastKnownGoodPosition))
+            {
+                Plugin.LogError($"[Instance {instanceId}] Using fallback position: {lastKnownGoodPosition}");
+                return lastKnownGoodPosition;
+            }
+
+            // Ultimate fallback - center ice, high up
+            Vector3 fallbackPosition = new Vector3(0, 20f, 0);
+            Plugin.LogError($"[Instance {instanceId}] Using emergency fallback position: {fallbackPosition}");
+            lastKnownGoodPosition = fallbackPosition;
+            hasValidPosition = true;
+            return fallbackPosition;
+        }
+
+        /// <summary>
+        /// Initializes the custom camera for goalie view with enhanced validation
         /// </summary>
         private static void InitializeLeftOutCamera(PlayerTeam team)
         {
@@ -89,19 +153,43 @@ namespace IFeelLeftOut
 
                 Plugin.Log($"[Instance {instanceId}] Initializing left out camera for team: " + team.ToString());
 
-                // Calculate camera position based on team
-                float camDistance = team == PlayerTeam.Blue ? -15f : 15f;
-                float camRotation = team == PlayerTeam.Blue ? -180f : 0f;
-
-                // Create camera if it doesn't exist
+                // Ensure camera exists first
                 EnsureLeftOutCameraExists();
 
-                // Position and configure the camera
-                leftOutCamera.transform.position = new Vector3(0, CAM_HEIGHT, camDistance);
+                if (leftOutCamera == null)
+                {
+                    Plugin.LogError($"[Instance {instanceId}] Failed to create left out camera");
+                    return;
+                }
+
+                // Get safe position
+                Vector3 safePosition = GetSafeCameraPosition(team);
+                float camRotation = team == PlayerTeam.Blue ? -180f : 0f;
+
+                // Set position and validate
+                leftOutCamera.transform.position = safePosition;
                 leftOutCamera.transform.rotation = Quaternion.Euler(CAM_ANGLE, camRotation, 0);
                 leftOutCamera.fieldOfView = CAM_FOV;
 
-                Plugin.Log($"[Instance {instanceId}] Left out camera initialized successfully");
+                // Validate the position was actually set
+                Vector3 actualPosition = leftOutCamera.transform.position;
+                if (!IsValidCameraPosition(actualPosition))
+                {
+                    Plugin.LogError($"[Instance {instanceId}] Camera position validation failed! Expected: {safePosition}, Actual: {actualPosition}");
+
+                    // Force set position again
+                    leftOutCamera.transform.position = safePosition;
+
+                    // If still failing, delay initialization
+                    if (!IsValidCameraPosition(leftOutCamera.transform.position))
+                    {
+                        Plugin.LogError($"[Instance {instanceId}] Camera position still invalid, marking uninitialized");
+                        initialized = false;
+                        return;
+                    }
+                }
+
+                Plugin.Log($"[Instance {instanceId}] Left out camera initialized successfully at position: {actualPosition}");
                 initialized = true;
             }
             catch (Exception e)
@@ -121,9 +209,32 @@ namespace IFeelLeftOut
             if (leftOutCamera == null || leftOutCameraGameObject == null)
             {
                 Plugin.Log($"[Instance {instanceId}] Creating new left out camera");
+
+                // Clean up any existing broken camera
+                if (leftOutCameraGameObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(leftOutCameraGameObject);
+                }
+
+                // Create new camera
                 leftOutCameraGameObject = new GameObject("LeftOutCamera");
+
+                // Ensure the GameObject is not destroyed when loading scenes
+                UnityEngine.Object.DontDestroyOnLoad(leftOutCameraGameObject);
+
                 leftOutCamera = leftOutCameraGameObject.AddComponent<Camera>();
-                leftOutCamera.enabled = leftOutCamToggle;
+                leftOutCamera.enabled = false; // Start disabled
+
+                // Copy some settings from the main camera if available
+                if (playerCam != null)
+                {
+                    leftOutCamera.clearFlags = playerCam.clearFlags;
+                    leftOutCamera.backgroundColor = playerCam.backgroundColor;
+                    leftOutCamera.cullingMask = playerCam.cullingMask;
+                    leftOutCamera.depth = playerCam.depth + 1; // Render on top
+                }
+
+                Plugin.Log($"[Instance {instanceId}] Left out camera created successfully");
             }
         }
 
@@ -137,28 +248,81 @@ namespace IFeelLeftOut
             if (playerCam == null && localPlayer != null)
             {
                 Plugin.Log($"[Instance {instanceId}] Getting camera from player object");
-                playerCam = localPlayer.PlayerCamera.CameraComponent;
+
+                if (localPlayer.PlayerCamera != null && localPlayer.PlayerCamera.CameraComponent != null)
+                {
+                    playerCam = localPlayer.PlayerCamera.CameraComponent;
+                    Plugin.Log($"[Instance {instanceId}] Player camera reference established");
+                }
+                else
+                {
+                    Plugin.LogError($"[Instance {instanceId}] Player camera component is null");
+                }
             }
         }
 
         /// <summary>
-        /// Handles input for camera toggling with improved detection
+        /// Handles input for camera toggling with cooldown and validation
         /// </summary>
         private static void HandleCameraToggleInput()
         {
             if (!IsLocalPlayerInstance()) return;
 
+            // Check cooldown to prevent rapid toggling
+            if (Time.time - lastToggleTime < TOGGLE_COOLDOWN)
+            {
+                return;
+            }
+
             // Check if the key is currently pressed
-            bool isKeyPressed = Keyboard.current[toggleCameraKey].isPressed;
+            bool isKeyPressed = Keyboard.current != null && Keyboard.current[toggleCameraKey].isPressed;
 
             // Toggle happens on the rising edge (when key transitions from not pressed to pressed)
             if (isKeyPressed && !keyWasPressed)
             {
-                // Toggle the camera state (true -> false, false -> true)
+                // Validate that we can actually toggle
+                if (leftOutCamera == null || playerCam == null)
+                {
+                    Plugin.LogError($"[Instance {instanceId}] Cannot toggle - cameras not ready (leftOut: {leftOutCamera != null}, player: {playerCam != null})");
+                    keyWasPressed = isKeyPressed;
+                    return;
+                }
+
+                // Validate camera position before toggling
+                if (leftOutCamToggle == false) // About to enable left out camera
+                {
+                    Vector3 currentPos = leftOutCamera.transform.position;
+                    if (!IsValidCameraPosition(currentPos))
+                    {
+                        Plugin.LogError($"[Instance {instanceId}] Camera position invalid before toggle: {currentPos}, reinitializing...");
+
+                        // Try to reinitialize
+                        if (localPlayer != null && localPlayer.Team != null)
+                        {
+                            InitializeLeftOutCamera(localPlayer.Team.Value);
+                        }
+
+                        // Check again
+                        if (!IsValidCameraPosition(leftOutCamera.transform.position))
+                        {
+                            Plugin.LogError($"[Instance {instanceId}] Camera reinitialization failed, aborting toggle");
+                            keyWasPressed = isKeyPressed;
+                            return;
+                        }
+                    }
+                }
+
+                // Perform the toggle
                 leftOutCamToggle = !leftOutCamToggle;
+                lastToggleTime = Time.time;
 
                 string cameraState = leftOutCamToggle ? "ENABLED" : "DISABLED";
                 Plugin.Log($"[Instance {instanceId}] Camera toggled: {cameraState}");
+
+                if (leftOutCamToggle)
+                {
+                    Plugin.Log($"[Instance {instanceId}] Left out camera position: {leftOutCamera.transform.position}");
+                }
             }
 
             // Update key state for next frame
@@ -166,7 +330,7 @@ namespace IFeelLeftOut
         }
 
         /// <summary>
-        /// Updates camera enabled states based on toggle
+        /// Updates camera enabled states based on toggle with validation
         /// </summary>
         private static void UpdateCameraStates()
         {
@@ -177,9 +341,33 @@ namespace IFeelLeftOut
                 // Only update if the state actually changes
                 if (leftOutCamera.enabled != leftOutCamToggle)
                 {
+                    // If enabling left out camera, validate position one more time
+                    if (leftOutCamToggle)
+                    {
+                        Vector3 currentPos = leftOutCamera.transform.position;
+                        if (!IsValidCameraPosition(currentPos))
+                        {
+                            Plugin.LogError($"[Instance {instanceId}] Invalid position detected during camera enable: {currentPos}");
+
+                            // Force re-position
+                            if (localPlayer != null && localPlayer.Team != null)
+                            {
+                                Vector3 safePos = GetSafeCameraPosition(localPlayer.Team.Value);
+                                leftOutCamera.transform.position = safePos;
+                                Plugin.Log($"[Instance {instanceId}] Forced camera to safe position: {safePos}");
+                            }
+                        }
+                    }
+
                     leftOutCamera.enabled = leftOutCamToggle;
                     playerCam.enabled = !leftOutCamToggle;
+
                     Plugin.Log($"[Instance {instanceId}] Camera states updated: LeftOut={leftOutCamToggle}, Player={!leftOutCamToggle}");
+
+                    if (leftOutCamToggle)
+                    {
+                        Plugin.Log($"[Instance {instanceId}] Active camera position: {leftOutCamera.transform.position}");
+                    }
                 }
             }
         }
@@ -203,6 +391,8 @@ namespace IFeelLeftOut
             leftOutCamToggle = false;
             initialized = false;
             keyWasPressed = false;
+            hasValidPosition = false;
+            lastKnownGoodPosition = Vector3.zero;
 
             Plugin.Log($"[Instance {instanceId}] Camera system has been reset");
         }
@@ -237,7 +427,7 @@ namespace IFeelLeftOut
                     if (localPlayer == null) return;
 
                     // Check if player exists and is a goalie
-                    if (localPlayer.Role.Value == PlayerRole.Goalie)
+                    if (localPlayer.Role?.Value == PlayerRole.Goalie)
                     {
                         // Additional check to make sure we're only working with local player's camera
                         if (__instance != localPlayer.PlayerCamera) return;
@@ -250,7 +440,7 @@ namespace IFeelLeftOut
                         HandleCameraToggleInput();
 
                         // Initialize camera if not already done
-                        if (!initialized)
+                        if (!initialized && localPlayer.Team?.Value != null)
                         {
                             InitializeLeftOutCamera(localPlayer.Team.Value);
                         }
@@ -262,6 +452,7 @@ namespace IFeelLeftOut
                 catch (Exception e)
                 {
                     Plugin.LogError($"[Instance {instanceId}] Error in camera tick: " + e.Message);
+                    Plugin.LogError($"[Instance {instanceId}] Stack trace: " + e.StackTrace);
                     ResetCameraSystem();
                 }
             }
