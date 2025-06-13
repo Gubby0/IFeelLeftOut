@@ -27,8 +27,6 @@ namespace IFeelLeftOut
 
         // Input handling state
         private static bool keyWasPressed = false;
-        private static float lastToggleTime = 0f;
-        private const float TOGGLE_COOLDOWN = 0.5f; // Prevent rapid toggling
 
         // Instance management
         private static bool isLocalPlayerInstance = false;
@@ -268,12 +266,6 @@ namespace IFeelLeftOut
         {
             if (!IsLocalPlayerInstance()) return;
 
-            // Check cooldown to prevent rapid toggling
-            if (Time.time - lastToggleTime < TOGGLE_COOLDOWN)
-            {
-                return;
-            }
-
             // Check if the key is currently pressed
             bool isKeyPressed = Keyboard.current != null && Keyboard.current[toggleCameraKey].isPressed;
 
@@ -314,7 +306,6 @@ namespace IFeelLeftOut
 
                 // Perform the toggle
                 leftOutCamToggle = !leftOutCamToggle;
-                lastToggleTime = Time.time;
 
                 string cameraState = leftOutCamToggle ? "ENABLED" : "DISABLED";
                 Plugin.Log($"[Instance {instanceId}] Camera toggled: {cameraState}");
